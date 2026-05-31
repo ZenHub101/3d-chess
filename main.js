@@ -24,9 +24,9 @@ let board = Array(8).fill().map(() =>
 let currentPlayer = 1; // 1 = white; 2 = black
 const size = 8;
 const selected = {
-    x: 0,
-    y: 0,
-    z: 0
+    file: 0,
+    plane: 0,
+    rank: 0
 };
 const cells = [];
 
@@ -129,3 +129,26 @@ function getPiece(x, y, z) {
 function setPiece(x, y, z, piece) {
   board[x][y][z] = piece;
 }
+
+// animation loop
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+
+    // reset opacity
+    for (let f = 0; f < size; f++) {
+        for (let p = 0; p < size; p++) {
+            for (let r = 0; r < size; r++) {
+                cells[f][p][r].userData.box.material.opacity = 0.05;
+            }
+        }
+    }
+
+    // highlight selected cell
+    const selectedCell = cells[selected.file][selected.plane][selected.rank];
+    selectedCell.userData.box.material.opacity = 0.5;
+    renderer.render(scene, camera);
+}
+
+// --- animate stuff ---
+animate();
