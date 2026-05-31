@@ -29,6 +29,16 @@ const selected = {
     rank: 0
 };
 const cells = [];
+const backRankWhite = [
+    "Rook",
+    "Knight",
+    "Bishop",
+    "Queen",
+    "King",
+    "Bishop",
+    "Knight",
+    "Rook"
+];
 
 // scene
 const scene = new THREE.Scene();
@@ -50,6 +60,22 @@ const edges = new THREE.EdgesGeometry(geometry);
 const renderer = new THREE.WebGLRenderer({
     anitalias: true
 });
+
+// loaders
+const loader = new GLTFLoader();
+let pawnModel;
+let rookModel;
+let knightModel;
+let bishopModel;
+let queenModel;
+let kingModel;
+loader.load(
+    'assets/3D models/Pawn.glb',
+    gltf => {
+        rookModel = gltf.scene;
+        console.log("rook loaded!");
+    }
+);
 
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -94,14 +120,17 @@ for (let file = 0; file < size; file++) { // file = x axis
 
             // references
             const cell = new THREE.Group();
-            cell.userData.box = box;
-            cell.userData.wire = wire;
+            cells[file][plane][rank] = cell;
+            cells[file][plane][rank].userData.box = box;
+            cells[file][plane][rank].userData.wire = wire;
             cell.userData.file = file;
             cell.userData.plane = plane;
             cell.userData.rank = rank;
+            cells[file][plane][rank].userData.file = file;
+            cells[file][plane][rank].userData.plane = plane;
+            cells[file][plane][rank].userData.rank = rank;
             if (!board[file]) board[file] = [];
             if (!board[file][plane]) board[file][plane] = [];
-            cells[file][plane][rank] = cell;
 
             // cell placement
             cell.position.x = (file - (size - 1) / 2);
@@ -123,11 +152,46 @@ for (let file = 0; file < size; file++) { // file = x axis
 
 // get/place pieces
 function getPiece(x, y, z) {
-  if (x < 0 || x > 7 || y < 0 || y > 7 || z < 0 || z > 7) return null;
-  return board[x][y][z];
+    if (x < 0 || x > 7 || y < 0 || y > 7 || z < 0 || z > 7) return null;
+    return board[x][y][z];
 }
-function placePiece(x, y, z, piece) {
-  board[x][y][z] = piece;
+function placePiece(file, plane, rank, piece, color) {
+    board[file][plane][rank] = new Piece(piece, color);
+
+    loader.load(
+        `assets/3D models/${piece}.glb`,
+        gltf => {
+            gltf.scene.position.set(
+                (file - (size - 1) / 2),
+                -(plane - (size - 1) / 2) - 0.5,
+                -(rank - (size - 1) / 2)
+            );
+
+            gltf.scene.traverse(obj => {
+                if (obj.isMesh) {
+                    obj.material = new THREE.MeshStandardMaterial({
+                        color: color === "white"
+                            ? 0xffffff
+                            : 0x222222
+                    });
+                }
+            });
+
+            gltf.scene.scale.set(0.05, 0.05, 0.05);
+
+            // STLs often need this
+            gltf.scene.rotation.x = -Math.PI / 2;
+
+            // rotate kings 90° around y bcz i dont want to edit the model again
+            if (piece.toLowerCase() === "king") {
+                gltf.scene.rotation.z = Math.PI / 2;
+            }
+            if (color === "black") {
+                gltf.scene.rotation.y += Math.PI;
+            }
+            scene.add(gltf.scene);
+        }
+    );
 }
 
 // make sure the selection doesn't escape the board
@@ -211,6 +275,14 @@ document.getElementById("front").addEventListener('click', moveFront);
 document.getElementById("back").addEventListener('click', moveBack);
 document.getElementById("place").addEventListener('click', console.log("PLACE placeholder"));
 
+// starting pieces
+for (let file = 0; file < size; file++) {
+    placePiece(file, 0, 0, backRankWhite[file], "white");
+}
+for (let file = 0; file < size; file++) {
+    placePiece(file, 1, 0, "pawn", "white");
+}
+
 // animation loop
 function animate() {
     requestAnimationFrame(animate);
@@ -228,6 +300,15 @@ function animate() {
     // highlight selected cell
     const selectedCell = cells[selected.file][selected.plane][selected.rank];
     selectedCell.userData.box.material.opacity = 0.5;
+    scene.traverse(obj => {
+    if (obj.isMesh) {
+        console.log(
+            obj.name,
+            obj.material,
+            obj.material?.constructor?.name
+        );
+    }
+});
     renderer.render(scene, camera);
 }
 
