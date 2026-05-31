@@ -28,6 +28,7 @@ const selected = {
     y: 0,
     z: 0
 };
+const cells = [];
 
 // scene
 const scene = new THREE.Scene();
@@ -39,6 +40,10 @@ const camera = new THREE.PerspectiveCamera(
     0.1,
     1000
 );
+
+// reusable materials and geometries
+const geometry = new THREE.BoxGeometry(1, 1, 1);
+const edges = new THREE.EdgesGeometry(geometry);
 
 // renderer
 const renderer = new THREE.WebGLRenderer({
@@ -64,6 +69,53 @@ scene.add(ambientLight);
 const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
 directionalLight.position.set(12, 12, 12);
 scene.add(directionalLight);
+
+// board cells
+for (let file = 0; file < size; file++) { // file = x axis
+    cells[file] = [];
+    for (let plane = 0; plane < size; plane++) { // plane = y axis
+        cells[file][plane] = [];
+        for (let rank = 0; rank < size; rank++) { // rank = z axis
+            const isEven = (file + plane + rank) % 2 === 0;
+            // materials
+            const boxMaterial = new THREE.MeshStandardMaterial({
+                color: 0xffff00,
+                transparent: true,
+                opacity: 0.05
+            });
+            const wireMaterial = isEven
+              ? new THREE.LineBasicMaterial({ color: 0xffffff })
+              : new THREE.LineBasicMaterial({ color: 0x121212 });
+            
+            const edges = new THREE.EdgesGeometry(geometry);
+            const wire = new THREE.LineSegments(edges, wireMaterial);
+            const box = new THREE.Mesh(geometry, boxMaterial);
+
+            // references
+            const cell = new THREE.Group();
+            cell.userData.box = box;
+            cell.userData.wire = wire;
+            cell.userData.file = file;
+            cell.userData.plane = plane;
+            cell.userData.rank = rank;
+            if (!board[file]) board[file] = [];
+            if (!board[file][plane]) board[file][plane] = [];
+            cells[file][plane][rank] = cell;
+
+            // cell placement
+            const spacing = 1.2;
+            cell.position.x = (file - (size - 1) / 2) * spacing;
+            cell.position.y = -(plane - (size - 1) / 2) * spacing;
+            cell.position.z = -(rank - (size - 1) / 2) * spacing;
+
+            cell.add(box);
+            cell.add(wire);
+            box.userData.parentCell = cell;
+            wire.userData.parentCell = cell;
+            scene.add(cell);
+        }
+    }
+}
 
 
 
