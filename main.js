@@ -126,9 +126,90 @@ function getPiece(x, y, z) {
   if (x < 0 || x > 7 || y < 0 || y > 7 || z < 0 || z > 7) return null;
   return board[x][y][z];
 }
-function setPiece(x, y, z, piece) {
+function placePiece(x, y, z, piece) {
   board[x][y][z] = piece;
 }
+
+// make sure the selection doesn't escape the board
+function clampSelection() {
+    selected.file = Math.max(0, Math.min(size - 1, selected.file));
+    selected.plane = Math.max(0, Math.min(size - 1, selected.plane));
+    selected.rank = Math.max(0, Math.min(size - 1, selected.rank));
+}
+
+// movement functions
+function moveUp() {
+    selected.plane--;
+    clampSelection();
+}
+function moveDown() {
+    selected.plane++;
+    clampSelection();
+}
+function moveRight() {
+    selected.file++;
+    clampSelection();
+}
+function moveLeft() {
+    selected.file--;
+    clampSelection();
+}
+function moveFront() {
+    selected.rank--;
+    clampSelection();
+}
+function moveBack() {
+    selected.rank++;
+    clampSelection();
+}
+// event listener for keyboard input
+window.addEventListener('keydown', (event) => {
+    const blockedKeys = [
+        'KeyW',
+        'KeyA',
+        'KeyS',
+        'KeyD',
+        'KeyQ',
+        'KeyE',
+        'Enter'
+    ];
+    if (blockedKeys.includes(event.code)) {
+        event.preventDefault();
+    }
+    switch(event.code) {
+        case 'KeyW':
+            moveUp();
+            break;
+        case 'KeyA':
+            moveLeft();
+            break;
+        case 'KeyS':
+            moveDown();
+            break;
+        case 'KeyD':
+            moveRight();
+            break;
+        case 'KeyQ':
+            moveFront();
+            break;
+        case 'KeyE':
+            moveBack();
+            break;
+        case 'Enter':
+            // place piece
+            break;
+    }
+    coordsInfo.textContent = `File: ${selected.file + 1} | Plane: ${selected.plane + 1} | Rank: ${selected.rank + 1}`;
+});
+
+// on-screen buttons input handling
+document.getElementById("up").addEventListener('click', moveUp);
+document.getElementById("down").addEventListener('click', moveDown);
+document.getElementById("left").addEventListener('click', moveLeft);
+document.getElementById("right").addEventListener('click', moveRight);
+document.getElementById("front").addEventListener('click', moveFront);
+document.getElementById("back").addEventListener('click', moveBack);
+document.getElementById("place").addEventListener('click', console.log("PLACE placeholder"));
 
 // animation loop
 function animate() {
