@@ -40,6 +40,7 @@ const camera = new THREE.PerspectiveCamera(
     0.1,
     1000
 );
+camera.position.z = 12;
 
 // reusable materials and geometries
 const geometry = new THREE.BoxGeometry(1, 1, 1);
@@ -58,7 +59,7 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.target.set(0, 0, 0);
 controls.minDistance = 5;
-controls.maxDistance = 12;
+controls.maxDistance = 20;
 controls.update();
 
 // ambient light
@@ -81,11 +82,11 @@ for (let file = 0; file < size; file++) { // file = x axis
             const boxMaterial = new THREE.MeshStandardMaterial({
                 color: 0xffff00,
                 transparent: true,
-                opacity: 0.05
+                opacity: 0.01
             });
             const wireMaterial = isEven
-              ? new THREE.LineBasicMaterial({ color: 0xffffff })
-              : new THREE.LineBasicMaterial({ color: 0x121212 });
+              ? new THREE.LineBasicMaterial({ color: 0xe0f0ef, transparent: true, opacity: 0.5 })
+              : new THREE.LineBasicMaterial({ color: 0x815438, transparent: true, opacity: 0.5 });
             
             const edges = new THREE.EdgesGeometry(geometry);
             const wire = new THREE.LineSegments(edges, wireMaterial);
@@ -103,10 +104,9 @@ for (let file = 0; file < size; file++) { // file = x axis
             cells[file][plane][rank] = cell;
 
             // cell placement
-            const spacing = 1.2;
-            cell.position.x = (file - (size - 1) / 2) * spacing;
-            cell.position.y = -(plane - (size - 1) / 2) * spacing;
-            cell.position.z = -(rank - (size - 1) / 2) * spacing;
+            cell.position.x = (file - (size - 1) / 2);
+            cell.position.y = -(plane - (size - 1) / 2);
+            cell.position.z = -(rank - (size - 1) / 2);
 
             cell.add(box);
             cell.add(wire);
@@ -139,7 +139,7 @@ function animate() {
     for (let f = 0; f < size; f++) {
         for (let p = 0; p < size; p++) {
             for (let r = 0; r < size; r++) {
-                cells[f][p][r].userData.box.material.opacity = 0.05;
+                cells[f][p][r].userData.box.material.opacity = 0.01;
             }
         }
     }
