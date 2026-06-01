@@ -50,18 +50,16 @@ const backRankBlack = [
     "Knight",
     "Rook"
 ];
-
-// piece spacings
-const pawnOffsetWhite = {
-    file: 0,
-    plane: 0.5,
-    rank: -2
-};
-const pawnOffsetBlack = {
-    file: 0,
-    plane: -1.5,
-    rank: 2
-};
+const backRankSecond = [
+    "Rook",
+    "Knight",
+    "Bishop",
+    "Unicorn",
+    "Unicorn",
+    "Bishop",
+    "Knight",
+    "Rook"
+];
 
 // scene
 const scene = new THREE.Scene();
@@ -235,22 +233,8 @@ function placePiece(file, plane, rank, piece, color) {
         if (piece.toLowerCase() === "king") {
             model.rotation.z = Math.PI / 2;
         }
-        if (piece.toLowerCase() === "pawn") {
-            model.position.set(
-                (file  - (size - 1) / 2) + pawnOffsetWhite.file,
-                -(plane - (size - 1) / 2) + pawnOffsetWhite.plane,
-                -(rank  - (size - 1) / 2) + pawnOffsetWhite.rank
-            );
-        }
         if (color === "black") {
             model.rotation.z += Math.PI;
-            if (piece.toLowerCase() === "pawn") {
-                model.position.set(
-                    (file  - (size - 1) / 2) + pawnOffsetBlack.file,
-                    -(plane - (size - 1) / 2) + pawnOffsetBlack.plane,
-                    -(rank  - (size - 1) / 2) + pawnOffsetBlack.rank
-                );
-            }
         }
         scene.add(model);
         cells[file][plane][rank].userData.pieceModel = model;
@@ -274,10 +258,160 @@ function placePiece(file, plane, rank, piece, color) {
 // loaders — declared after placePiece so the cache reference is in scope
 const loader = new GLTFLoader();
 
+// move validation
+// check if the piece is an enemy piece
+function isTarget(f, p, r, color) {
+    if (f<0 || f>7 || p<0 || p>7 || r<0 || r>7) return false;
+    const target = getPiece(f, p, r);
+    return !target || target.color !== color;
+}
+// slide in a direction until blocked
+function slide(file, plane, rank, color, directions) {
+    const moves = [];
+    for (const [df, dp, dr] of directions) {
+        let f = file + df, p = plane + dp, r = rank + dr;
+        while (f>=0 && f<8 && p>=0 && p<8 && r>=0 && r<8) {
+            const target = getPiece(f, p, r);
+            if (target) {
+                if (target.color !== color) moves.push({ file: f, plane: p, rank: r }); // capture
+                break;
+            }
+            moves.push({ file: f, plane: p, rank: r });
+            f += df; p += dp; r += dr;
+        }
+    }
+    return moves;
+}
+// get all possible moves
+function getRookMoves(file, plane, rank, color) {
+    return slide(file, plane, rank, color, [
+        [1,0,0],[-1,0,0],
+        [0,1,0],[0,-1,0],
+        [0,0,1],[0,0,-1]
+    ]);
+}
+function getBishopMoves(file, plane, rank, color) {
+    return slide(file, plane, rank, color, [
+        // XY plane diagonals
+        [1,1,0],[1,-1,0],[-1,1,0],[-1,-1,0],
+        // XZ plane diagonals
+        [1,0,1],[1,0,-1],[-1,0,1],[-1,0,-1],
+        // YZ plane diagonals
+        [0,1,1],[0,1,-1],[0,-1,1],[0,-1,-1]
+    ]);
+}
+function getUnicornMoves(file, plane, rank, color) {
+    return slide(file, plane, rank, color, [
+        [1,1,1],
+        [1,1,-1],
+        [1,-1,1],
+        [1,-1,-1],
+        [-1,1,1],
+        [-1,1,-1],
+        [-1,-1,1],
+        [-1,-1,-1]
+    ]);
+}
+function getKnightMoves(file, plane, rank, color) {
+    const moves = [];
+    // 2 steps on one axis, 1 on another; all combinations
+    const deltas = [
+        [2,1,0],[2,-1,0],[-2,1,0],[-2,-1,0],
+        [2,0,1],[2,0,-1],[-2,0,1],[-2,0,-1],
+        [1,2,0],[1,-2,0],[-2,1,0],[-2,-1,0],
+        [0,2,1],[0,2,-1],[0,-2,1],[0,-2,-1],
+        [1,0,2],[1,0,-2],[-1,0,2],[-1,0,-2],
+        [0,1,2],[0,1,-2],[0,-1,2],[0,-1,-2]
+    ];
+    for (const [df, dp, dr] of deltas) {
+        const f = file + df, p = plane + dp, r = rank + dr;
+        if (isTarget(f, p, r, color)) moves.push({ file: f, plane: p, rank: r });
+    }
+    return moves;
+}
+function getKingMoves(file, plane, rank, color) {
+    const moves = [];
+    for (let df = -1; df <= 1; df++) {
+        for (let dp = -1; dp <= 1; dp++) {
+            for (let dr = -1; dr <= 1; dr++) {
+                if (df === 0 && dp === 0 && dr === 0) continue; // skip self's position
+                const f = file + df, p = plane + dp, r = rank + dr;
+                if (isTarget(f, p, r, color)) moves.push({ file: f, plane: p, rank: r });
+            }
+        }
+    }
+    return moves;
+}
+function getPawnMoves(file, plane, rank, color) {
+    const moves = [];
+    const [fwd1, fwd2] = color === "white" ? [1, -1] : [-1, 1];
+
+    const isStarting = color === "white" ? (rank === 1) : (rank === 6);
+
+    // +rank direction
+    const r1 = rank + fwd1;
+    if (r1 >= 0 && r1 < 8 && !getPiece(file, plane, r1)) {
+        moves.push({ file, plane, rank: r1 });
+        // 2-step only if starting and the intermediate square was empty (already checked)
+        const r2 = rank + fwd1 * 2;
+        if (isStarting && r2 >= 0 && r2 < 8 && !getPiece(file, plane, r2)) {
+            moves.push({ file, plane, rank: r2 });
+        }
+    }
+
+    // -plane direction
+    const p1 = plane + fwd2;
+    if (p1 >= 0 && p1 < 8 && !getPiece(file, p1, rank)) {
+        moves.push({ file, plane: p1, rank });
+        const p2 = plane + fwd2 * 2;
+        if (isStarting && p2 >= 0 && p2 < 8 && !getPiece(file, p2, rank)) {
+            moves.push({ file, plane: p2, rank });
+        }
+    }
+
+    // captures
+    const captures = [
+        { file: file+1, plane, rank: rank + fwd1 },
+        { file: file-1, plane, rank: rank + fwd1 },
+        { file: file+1, plane: plane + fwd2, rank },
+        { file: file-1, plane: plane + fwd2, rank }
+    ];
+    for (const m of captures) {
+        if (m.file >= 0 && m.file < 8 && m.plane >= 0 && m.plane < 8 && m.rank >= 0 && m.rank < 8) {
+            const target = getPiece(m.file, m.plane, m.rank);
+            if (target && target.color !== color) moves.push(m);
+        }
+    }
+
+    return moves;
+}
+function getValidMoves(file, plane, rank) {
+    const piece = getPiece(file, plane, rank);
+    if (!piece) return [];
+    switch (piece.type) {
+        case "Pawn": return getPawnMoves(file, plane, rank, piece.color);
+        case "Rook": return getRookMoves(file, plane, rank, piece.color);
+        case "Knight": return getKnightMoves(file, plane, rank, piece.color);
+        case "Bishop": return getBishopMoves(file, plane, rank, piece.color);
+        case "Queen": return [...getRookMoves(file, plane, rank, piece.color), ...getBishopMoves(file, plane, rank, piece.color)];
+        case "King": return getKingMoves(file, plane, rank, piece.color);
+        case "Unicorn": return getUnicornMoves(file, plane, rank, piece.color);
+        default: return [];
+    }
+}
+
 // move pieces
 function movePiece(from, to) {
     const piece = board[from.file][from.plane][from.rank];
     if (!piece) return;
+    // move validation
+    const valid = getValidMoves(from.file, from.plane, from.rank);
+    const allowed = valid.some(m => m.file === to.file && m.plane === to.plane && m.rank === to.rank);
+    if (!allowed) {
+        console.log("illegal move!");
+        activePiece = null; // deselect
+        return;
+    }
     // game state update
     const capturedPiece = board[to.file][to.plane][to.rank];
     if (capturedPiece) {
@@ -289,20 +423,11 @@ function movePiece(from, to) {
     // visual update
     const model = cells[from.file][from.plane][from.rank].userData.pieceModel;
     if (model) {
-        if (piece.type.toLowerCase() === "pawn") {
-            const offset = piece.color === "white" ? pawnOffsetWhite : pawnOffsetBlack;
-            model.position.set(
-                (to.file  - (size - 1) / 2) + offset.file,
-                -(to.plane - (size - 1) / 2) + offset.plane,
-                -(to.rank  - (size - 1) / 2) + offset.rank
-            );
-        } else {
-            model.position.set(
-                (to.file - (size - 1) / 2),
-                -(to.plane - (size - 1) / 2) - 0.5,
-                -(to.rank - (size - 1) / 2)
-            );
-        }
+        model.position.set(
+            (to.file - (size - 1) / 2),
+            -(to.plane - (size - 1) / 2) - 0.5,
+            -(to.rank - (size - 1) / 2)
+        );
         cells[to.file][to.plane][to.rank].userData.pieceModel = model;
         cells[from.file][from.plane][from.rank].userData.pieceModel = null;
     }
@@ -382,16 +507,16 @@ document.getElementById("place").addEventListener('click', () => console.log("PL
 
 // starting pieces
 for (let file = 0; file < size; file++) {
+    // white pieces
     placePiece(file, 0, 0, backRankWhite[file], "white");
-}
-for (let file = 0; file < size; file++) {
-    placePiece(file, 1, 0, "Pawn", "white");
-}
-for (let file = 0; file < size; file++) {
+    placePiece(file, 0, 1, "Pawn", "white");
+    placePiece(file, 1, 0, backRankSecond[file], "white");
+    placePiece(file, 1, 1, "Pawn", "white");
+    // black pieces
     placePiece(file, 7, 7, backRankBlack[file], "black");
-}
-for (let file = 0; file < size; file++) {
-    placePiece(file, 6, 7, "Pawn", "black");
+    placePiece(file, 7, 6, "Pawn", "black");
+    placePiece(file, 6, 7, backRankSecond[file], "black");
+    placePiece(file, 6, 6, "Pawn", "black");
 }
 
 // initialise highlight on the starting cell
