@@ -206,7 +206,7 @@ function placePiece(file, plane, rank, piece, color) {
         );
 
         const pieceMat = new THREE.MeshStandardMaterial({
-            color: color === "white" ? 0xeeeeff : 0x222233,
+            color: color === "white" ? 0xdfd3c3 : 0x815438,
             metalness: 0.5,
             roughness: 0.1
         });
