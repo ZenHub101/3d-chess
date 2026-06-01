@@ -39,6 +39,28 @@ const backRankWhite = [
     "Knight",
     "Rook"
 ];
+const backRankBlack = [
+    "Rook",
+    "Knight",
+    "Bishop",
+    "King",
+    "Queen",
+    "Bishop",
+    "Knight",
+    "Rook"
+];
+
+// piece spacings
+const pawnSpacingWhite = {
+    file: 0,
+    plane: 0.5,
+    rank: -2
+};
+const pawnSpacingBlack = {
+    file: 0,
+    plane: -1.5,
+    rank: 2
+};
 
 // scene
 const scene = new THREE.Scene();
@@ -51,6 +73,7 @@ const camera = new THREE.PerspectiveCamera(
     1000
 );
 camera.position.z = 12;
+camera.position.y = 2
 window.addEventListener('resize', () => {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
@@ -91,6 +114,10 @@ scene.add(ambientLight);
 const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
 directionalLight.position.set(12, 12, 12);
 scene.add(directionalLight);
+
+// fake environtment
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new THREE.Scene()).texture;
 
 // FIX: share one material instance per (even/odd) × (wire/box) combination
 //      instead of creating 1024+ individual material objects
@@ -175,6 +202,11 @@ function getPiece(x, y, z) {
 const modelCache = {};
 
 function placePiece(file, plane, rank, piece, color) {
+    if (!board[file] || !board[file][plane]) {
+        console.error("BROKEN BOARD STATE:", file, plane, rank);
+        debugger;
+    }
+    console.log("board slot:", board[file], board[file]?.[plane]);
     board[file][plane][rank] = new Piece(piece, color);
 
     const applyModel = (gltfScene) => {
@@ -188,7 +220,9 @@ function placePiece(file, plane, rank, piece, color) {
         );
 
         const pieceMat = new THREE.MeshStandardMaterial({
-            color: color === "white" ? 0xffffff : 0x222222
+            color: color === "white" ? 0xffffff : 0x222222,
+            metalness: 0.5,
+            roughness: 0.1
         });
         model.traverse(obj => {
             if (obj.isMesh) obj.material = pieceMat;
@@ -200,10 +234,25 @@ function placePiece(file, plane, rank, piece, color) {
         if (piece.toLowerCase() === "king") {
             model.rotation.z = Math.PI / 2;
         }
+        if (piece.toLowerCase() === "pawn") {
+            model.position.set(
+                (file  - (size - 1) / 2) + pawnSpacingWhite.file,
+                -(plane - (size - 1) / 2) + pawnSpacingWhite.plane,
+                -(rank  - (size - 1) / 2) + pawnSpacingWhite.rank
+            );
+        }
         if (color === "black") {
-            model.rotation.y += Math.PI;
+            model.rotation.z += Math.PI;
+            if (piece.toLowerCase() === "pawn") {
+                model.position.set(
+                    (file  - (size - 1) / 2) + pawnSpacingBlack.file,
+                    -(plane - (size - 1) / 2) + pawnSpacingBlack.plane,
+                    -(rank  - (size - 1) / 2) + pawnSpacingBlack.rank
+                );
+            }
         }
         scene.add(model);
+        cells[file][plane][rank].userData.pieceModel = model;
     };
 
     if (modelCache[piece]) {
@@ -216,7 +265,6 @@ function placePiece(file, plane, rank, piece, color) {
                 modelCache[piece] = gltf.scene;
                 applyModel(gltf.scene);
                 gltf.scene.userData.boardPos = { file, plane, rank };
-                cells[file][plane][rank].userData.pieceModel = model;
             }
         );
     }
@@ -288,6 +336,12 @@ for (let file = 0; file < size; file++) {
 }
 for (let file = 0; file < size; file++) {
     placePiece(file, 1, 0, "Pawn", "white");
+}
+for (let file = 0; file < size; file++) {
+    placePiece(file, 7, 7, backRankBlack[file], "black");
+}
+for (let file = 0; file < size; file++) {
+    placePiece(file, 6, 7, "Pawn", "black");
 }
 
 // initialise highlight on the starting cell
