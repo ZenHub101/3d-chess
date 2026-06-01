@@ -60,6 +60,7 @@ const backRankSecond = [
     "Knight",
     "Rook"
 ];
+let highlightedCells = [];
 
 // scene
 const scene = new THREE.Scene();
@@ -82,12 +83,11 @@ window.addEventListener('resize', () => {
 
 // reusable geometry — ONE shared instance for all cells
 const geometry = new THREE.BoxGeometry(1, 1, 1);
-// FIX: EdgesGeometry computed once from the shared geometry
 const sharedEdges = new THREE.EdgesGeometry(geometry);
 
 // renderer
 const renderer = new THREE.WebGLRenderer({
-    antialias: true  // FIX: was "anitalias" (typo — the option was silently ignored)
+    antialias: true
 });
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
@@ -100,7 +100,6 @@ controls.minDistance = 5;
 controls.maxDistance = 20;
 controls.update();
 
-// FIX: track whether controls are active so we only re-render when needed
 let controlsActive = false;
 controls.addEventListener('start', () => { controlsActive = true; });
 controls.addEventListener('end',   () => { controlsActive = false; });
@@ -114,12 +113,10 @@ const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
 directionalLight.position.set(12, 12, 12);
 scene.add(directionalLight);
 
-// fake environtment
+// fake environment
 const pmrem = new THREE.PMREMGenerator(renderer);
 scene.environment = pmrem.fromScene(new THREE.Scene()).texture;
 
-// FIX: share one material instance per (even/odd) × (wire/box) combination
-//      instead of creating 1024+ individual material objects
 const boxMaterialShared = new THREE.MeshStandardMaterial({
     color: 0xffff00,
     transparent: true,
@@ -136,15 +133,12 @@ const wireMaterialOdd = new THREE.LineBasicMaterial({
     opacity: 0.5
 });
 
-// FIX: the selected cell needs its own non-shared box material so we can
-//      highlight it without affecting every other cell
 const selectedBoxMaterial = new THREE.MeshStandardMaterial({
     color: 0xffff00,
     transparent: true,
     opacity: 0.5
 });
 
-// track the previously selected cell to restore its material on move
 let previousSelectedCell = null;
 
 // board cells
@@ -155,13 +149,10 @@ for (let file = 0; file < size; file++) {
         for (let rank = 0; rank < size; rank++) {
             const isEven = (file + plane + rank) % 2 === 0;
 
-            // FIX: share the single edge geometry; share materials per parity
             const wire = new THREE.LineSegments(
                 sharedEdges,
                 isEven ? wireMaterialEven : wireMaterialOdd
             );
-            // FIX: each box still needs its own material instance so we can
-            //      swap it out for the selected-highlight material
             const boxMat = boxMaterialShared.clone();
             const box = new THREE.Mesh(geometry, boxMat);
 
@@ -190,14 +181,11 @@ for (let file = 0; file < size; file++) {
 
 // --- function definitions ---
 
-// get/place pieces
 function getPiece(x, y, z) {
     if (x < 0 || x > 7 || y < 0 || y > 7 || z < 0 || z > 7) return null;
     return board[x][y][z];
 }
 
-// FIX: cache loaded GLTF scenes so each piece type is only fetched once;
-//      subsequent placements clone the cached scene instead of re-fetching
 const modelCache = {};
 
 function placePiece(file, plane, rank, piece, color) {
@@ -209,7 +197,6 @@ function placePiece(file, plane, rank, piece, color) {
     board[file][plane][rank] = new Piece(piece, color);
 
     const applyModel = (gltfScene) => {
-        // FIX: clone so each placed piece is an independent object
         const model = gltfScene.clone(true);
 
         model.position.set(
@@ -238,10 +225,11 @@ function placePiece(file, plane, rank, piece, color) {
         }
         scene.add(model);
         cells[file][plane][rank].userData.pieceModel = model;
+        // FIX 2: trigger a re-render when a model finishes loading
+        needsRender = true;
     };
 
     if (modelCache[piece]) {
-        // already loaded — clone immediately, no extra network request
         applyModel(modelCache[piece]);
     } else {
         loader.load(
@@ -255,17 +243,14 @@ function placePiece(file, plane, rank, piece, color) {
     }
 }
 
-// loaders — declared after placePiece so the cache reference is in scope
 const loader = new GLTFLoader();
 
 // move validation
-// check if the piece is an enemy piece
 function isTarget(f, p, r, color) {
     if (f<0 || f>7 || p<0 || p>7 || r<0 || r>7) return false;
     const target = getPiece(f, p, r);
     return !target || target.color !== color;
 }
-// slide in a direction until blocked
 function slide(file, plane, rank, color, directions) {
     const moves = [];
     for (const [df, dp, dr] of directions) {
@@ -273,7 +258,7 @@ function slide(file, plane, rank, color, directions) {
         while (f>=0 && f<8 && p>=0 && p<8 && r>=0 && r<8) {
             const target = getPiece(f, p, r);
             if (target) {
-                if (target.color !== color) moves.push({ file: f, plane: p, rank: r }); // capture
+                if (target.color !== color) moves.push({ file: f, plane: p, rank: r });
                 break;
             }
             moves.push({ file: f, plane: p, rank: r });
@@ -282,7 +267,6 @@ function slide(file, plane, rank, color, directions) {
     }
     return moves;
 }
-// get all possible moves
 function getRookMoves(file, plane, rank, color) {
     return slide(file, plane, rank, color, [
         [1,0,0],[-1,0,0],
@@ -292,29 +276,19 @@ function getRookMoves(file, plane, rank, color) {
 }
 function getBishopMoves(file, plane, rank, color) {
     return slide(file, plane, rank, color, [
-        // XY plane diagonals
         [1,1,0],[1,-1,0],[-1,1,0],[-1,-1,0],
-        // XZ plane diagonals
         [1,0,1],[1,0,-1],[-1,0,1],[-1,0,-1],
-        // YZ plane diagonals
         [0,1,1],[0,1,-1],[0,-1,1],[0,-1,-1]
     ]);
 }
 function getUnicornMoves(file, plane, rank, color) {
     return slide(file, plane, rank, color, [
-        [1,1,1],
-        [1,1,-1],
-        [1,-1,1],
-        [1,-1,-1],
-        [-1,1,1],
-        [-1,1,-1],
-        [-1,-1,1],
-        [-1,-1,-1]
+        [1,1,1],[1,1,-1],[1,-1,1],[1,-1,-1],
+        [-1,1,1],[-1,1,-1],[-1,-1,1],[-1,-1,-1]
     ]);
 }
 function getKnightMoves(file, plane, rank, color) {
     const moves = [];
-    // 2 steps on one axis, 1 on another; all combinations
     const deltas = [
         [2,1,0],[2,-1,0],[-2,1,0],[-2,-1,0],
         [2,0,1],[2,0,-1],[-2,0,1],[-2,0,-1],
@@ -334,7 +308,7 @@ function getKingMoves(file, plane, rank, color) {
     for (let df = -1; df <= 1; df++) {
         for (let dp = -1; dp <= 1; dp++) {
             for (let dr = -1; dr <= 1; dr++) {
-                if (df === 0 && dp === 0 && dr === 0) continue; // skip self's position
+                if (df === 0 && dp === 0 && dr === 0) continue;
                 const f = file + df, p = plane + dp, r = rank + dr;
                 if (isTarget(f, p, r, color)) moves.push({ file: f, plane: p, rank: r });
             }
@@ -345,21 +319,17 @@ function getKingMoves(file, plane, rank, color) {
 function getPawnMoves(file, plane, rank, color) {
     const moves = [];
     const [fwd1, fwd2] = color === "white" ? [1, -1] : [-1, 1];
-
     const isStarting = color === "white" ? (rank === 1) : (rank === 6);
 
-    // +rank direction
     const r1 = rank + fwd1;
     if (r1 >= 0 && r1 < 8 && !getPiece(file, plane, r1)) {
         moves.push({ file, plane, rank: r1 });
-        // 2-step only if starting and the intermediate square was empty (already checked)
         const r2 = rank + fwd1 * 2;
         if (isStarting && r2 >= 0 && r2 < 8 && !getPiece(file, plane, r2)) {
             moves.push({ file, plane, rank: r2 });
         }
     }
 
-    // -plane direction
     const p1 = plane + fwd2;
     if (p1 >= 0 && p1 < 8 && !getPiece(file, p1, rank)) {
         moves.push({ file, plane: p1, rank });
@@ -369,7 +339,6 @@ function getPawnMoves(file, plane, rank, color) {
         }
     }
 
-    // captures
     const captures = [
         { file: file+1, plane, rank: rank + fwd1 },
         { file: file-1, plane, rank: rank + fwd1 },
@@ -389,30 +358,49 @@ function getValidMoves(file, plane, rank) {
     const piece = getPiece(file, plane, rank);
     if (!piece) return [];
     switch (piece.type) {
-        case "Pawn": return getPawnMoves(file, plane, rank, piece.color);
-        case "Rook": return getRookMoves(file, plane, rank, piece.color);
-        case "Knight": return getKnightMoves(file, plane, rank, piece.color);
-        case "Bishop": return getBishopMoves(file, plane, rank, piece.color);
-        case "Queen": return [...getRookMoves(file, plane, rank, piece.color), ...getBishopMoves(file, plane, rank, piece.color)];
-        case "King": return getKingMoves(file, plane, rank, piece.color);
+        case "Pawn":    return getPawnMoves(file, plane, rank, piece.color);
+        case "Rook":    return getRookMoves(file, plane, rank, piece.color);
+        case "Knight":  return getKnightMoves(file, plane, rank, piece.color);
+        case "Bishop":  return getBishopMoves(file, plane, rank, piece.color);
+        case "Queen":   return [...getRookMoves(file, plane, rank, piece.color), ...getBishopMoves(file, plane, rank, piece.color)];
+        case "King":    return getKingMoves(file, plane, rank, piece.color);
         case "Unicorn": return getUnicornMoves(file, plane, rank, piece.color);
         default: return [];
     }
+}
+
+// highlight possible moves
+function showMoves(moves) {
+    clearMoves();
+    for (const m of moves) {
+        const cell = cells[m.file][m.plane][m.rank];
+        const isCapture = !!getPiece(m.file, m.plane, m.rank);
+        cell.userData.box.material.color.set(isCapture ? 0xff0000 : 0x00ff00);
+        cell.userData.box.material.opacity = 0.3;
+        highlightedCells.push(cell);
+    }
+    needsRender = true;
+}
+function clearMoves() {
+    for (const cell of highlightedCells) {
+        cell.userData.box.material.color.set(0xffff00);
+        cell.userData.box.material.opacity = 0.01;
+    }
+    highlightedCells = [];
+    needsRender = true;
 }
 
 // move pieces
 function movePiece(from, to) {
     const piece = board[from.file][from.plane][from.rank];
     if (!piece) return;
-    // move validation
     const valid = getValidMoves(from.file, from.plane, from.rank);
     const allowed = valid.some(m => m.file === to.file && m.plane === to.plane && m.rank === to.rank);
     if (!allowed) {
         console.log("illegal move!");
-        activePiece = null; // deselect
+        activePiece = null;
         return;
     }
-    // game state update
     const capturedPiece = board[to.file][to.plane][to.rank];
     if (capturedPiece) {
         const capturedModel = cells[to.file][to.plane][to.rank];
@@ -420,7 +408,6 @@ function movePiece(from, to) {
     }
     board[to.file][to.plane][to.rank] = piece;
     board[from.file][from.plane][from.rank] = null;
-    // visual update
     const model = cells[from.file][from.plane][from.rank].userData.pieceModel;
     if (model) {
         model.position.set(
@@ -431,33 +418,42 @@ function movePiece(from, to) {
         cells[to.file][to.plane][to.rank].userData.pieceModel = model;
         cells[from.file][from.plane][from.rank].userData.pieceModel = null;
     }
+    currentPlayer = currentPlayer === 1 ? 2 : 1;
+    turnInfo.textContent = currentPlayer === 1 ? "White's turn" : "Black's turn";
     needsRender = true;
 }
 
-// make sure the selection doesn't escape the board
 function clampSelection() {
     selected.file  = Math.max(0, Math.min(size - 1, selected.file));
     selected.plane = Math.max(0, Math.min(size - 1, selected.plane));
     selected.rank  = Math.max(0, Math.min(size - 1, selected.rank));
 }
 
-// FIX: update highlight by swapping materials on only two cells rather than
-//      iterating all 512 cells every frame
 function updateHighlight() {
     if (previousSelectedCell) {
-        // restore previous cell to default (dim) material
-        previousSelectedCell.userData.box.material.opacity = 0.01;
+        // FIX 1: restore to move/capture highlight color if the cell is in
+        //        highlightedCells, otherwise restore to default dim state
+        const wasHighlighted = highlightedCells.includes(previousSelectedCell);
+        if (wasHighlighted) {
+            const isCapture = !!getPiece(
+                previousSelectedCell.userData.file,
+                previousSelectedCell.userData.plane,
+                previousSelectedCell.userData.rank
+            );
+            previousSelectedCell.userData.box.material.color.set(isCapture ? 0xff0000 : 0x00ff00);
+            previousSelectedCell.userData.box.material.opacity = 0.3;
+        } else {
+            previousSelectedCell.userData.box.material.opacity = 0.01;
+        }
     }
     const cell = cells[selected.file][selected.plane][selected.rank];
     cell.userData.box.material.opacity = 0.5;
     previousSelectedCell = cell;
-    needsRender = true; // flag a re-render
+    needsRender = true;
 }
 
-// dirty flag — only render when something has actually changed
 let needsRender = true;
 
-// movement functions
 function moveUp()    { selected.plane--; clampSelection(); updateHighlight(); coordsInfo.textContent = `File: ${selected.file + 1} | Plane: ${selected.plane + 1} | Rank: ${selected.rank + 1}`; }
 function moveDown()  { selected.plane++; clampSelection(); updateHighlight(); coordsInfo.textContent = `File: ${selected.file + 1} | Plane: ${selected.plane + 1} | Rank: ${selected.rank + 1}`; }
 function moveRight() { selected.file++;  clampSelection(); updateHighlight(); coordsInfo.textContent = `File: ${selected.file + 1} | Plane: ${selected.plane + 1} | Rank: ${selected.rank + 1}`; }
@@ -465,7 +461,6 @@ function moveLeft()  { selected.file--;  clampSelection(); updateHighlight(); co
 function moveFront() { selected.rank--;  clampSelection(); updateHighlight(); coordsInfo.textContent = `File: ${selected.file + 1} | Plane: ${selected.plane + 1} | Rank: ${selected.rank + 1}`; }
 function moveBack()  { selected.rank++;  clampSelection(); updateHighlight(); coordsInfo.textContent = `File: ${selected.file + 1} | Plane: ${selected.plane + 1} | Rank: ${selected.rank + 1}`; }
 
-// event listener for keyboard input
 window.addEventListener('keydown', (event) => {
     console.log(event.code);
     const blockedKeys = ['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','Enter'];
@@ -478,20 +473,24 @@ window.addEventListener('keydown', (event) => {
         case 'KeyD': moveRight(); break;
         case 'KeyQ': moveFront(); break;
         case 'KeyE': moveBack();  break;
-        case 'Enter':
+        case 'Enter': {
             console.log("Enter hit", activePiece, board[selected.file][selected.plane][selected.rank]);
             if (!activePiece) {
-                if (!board[selected.file][selected.plane][selected.rank]) return;
+                if (!board[selected.file][selected.plane][selected.rank]) break;
+                const piece = board[selected.file][selected.plane][selected.rank];
+                if (piece.color !== (currentPlayer === 1 ? "white" : "black")) break;
                 activePiece = { ...selected };
+                showMoves(getValidMoves(selected.file, selected.plane, selected.rank));
                 cells[activePiece.file][activePiece.plane][activePiece.rank]
                     .userData.box.material.opacity = 0.8;
                 needsRender = true;
-                break;
             } else {
+                clearMoves();
                 movePiece(activePiece, { ...selected });
                 activePiece = null;
             }
             break;
+        }
     }
 });
 
@@ -502,47 +501,53 @@ document.getElementById("left").addEventListener('click',  moveLeft);
 document.getElementById("right").addEventListener('click', moveRight);
 document.getElementById("front").addEventListener('click', moveFront);
 document.getElementById("back").addEventListener('click',  moveBack);
-// FIX: was console.log("PLACE placeholder") — executed immediately at parse time
-document.getElementById("place").addEventListener('click', () => console.log("PLACE placeholder"));
+document.getElementById("place").addEventListener('click', () => {
+    console.log("Enter hit", activePiece, board[selected.file][selected.plane][selected.rank]);
+    if (!activePiece) {
+        if (!board[selected.file][selected.plane][selected.rank]) return;
+        const piece = board[selected.file][selected.plane][selected.rank];
+        if (piece.color !== (currentPlayer === 1 ? "white" : "black")) return;
+        activePiece = { ...selected };
+        showMoves(getValidMoves(selected.file, selected.plane, selected.rank));
+        cells[activePiece.file][activePiece.plane][activePiece.rank]
+            .userData.box.material.opacity = 0.8;
+        needsRender = true;
+    } else {
+        clearMoves();
+        movePiece(activePiece, { ...selected });
+        activePiece = null;
+    }
+});
 
 // starting pieces
 for (let file = 0; file < size; file++) {
-    // white pieces
     placePiece(file, 0, 0, backRankWhite[file], "white");
     placePiece(file, 0, 1, "Pawn", "white");
     placePiece(file, 1, 0, backRankSecond[file], "white");
     placePiece(file, 1, 1, "Pawn", "white");
-    // black pieces
     placePiece(file, 7, 7, backRankBlack[file], "black");
     placePiece(file, 7, 6, "Pawn", "black");
     placePiece(file, 6, 7, backRankSecond[file], "black");
     placePiece(file, 6, 6, "Pawn", "black");
 }
 
-// initialise highlight on the starting cell
 updateHighlight();
 
-// animation loop
 function animate() {
     requestAnimationFrame(animate);
 
     const damping = controls.enableDamping;
 
-    // FIX: only call controls.update() when damping is active AND the user
-    //      is interacting (or damping is still decelerating)
     if (damping && (controlsActive || controls.update())) {
         needsRender = true;
     }
 
-    // FIX: skip rendering entirely when nothing has changed
-    // FIX: removed the per-frame scene.traverse() debug logger
     if (!needsRender) return;
     needsRender = false;
 
     renderer.render(scene, camera);
 }
 
-// mark dirty whenever controls finish a move (damping needs a few extra frames)
 controls.addEventListener('change', () => { needsRender = true; });
 
 animate();
