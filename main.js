@@ -28,6 +28,7 @@ const selected = {
     plane: 0,
     rank: 0
 };
+let activePiece = null;
 const cells = [];
 const backRankWhite = [
     "Rook",
@@ -51,12 +52,12 @@ const backRankBlack = [
 ];
 
 // piece spacings
-const pawnSpacingWhite = {
+const pawnOffsetWhite = {
     file: 0,
     plane: 0.5,
     rank: -2
 };
-const pawnSpacingBlack = {
+const pawnOffsetBlack = {
     file: 0,
     plane: -1.5,
     rank: 2
@@ -220,7 +221,7 @@ function placePiece(file, plane, rank, piece, color) {
         );
 
         const pieceMat = new THREE.MeshStandardMaterial({
-            color: color === "white" ? 0xffffff : 0x222222,
+            color: color === "white" ? 0xeeeeff : 0x222233,
             metalness: 0.5,
             roughness: 0.1
         });
@@ -236,18 +237,18 @@ function placePiece(file, plane, rank, piece, color) {
         }
         if (piece.toLowerCase() === "pawn") {
             model.position.set(
-                (file  - (size - 1) / 2) + pawnSpacingWhite.file,
-                -(plane - (size - 1) / 2) + pawnSpacingWhite.plane,
-                -(rank  - (size - 1) / 2) + pawnSpacingWhite.rank
+                (file  - (size - 1) / 2) + pawnOffsetWhite.file,
+                -(plane - (size - 1) / 2) + pawnOffsetWhite.plane,
+                -(rank  - (size - 1) / 2) + pawnOffsetWhite.rank
             );
         }
         if (color === "black") {
             model.rotation.z += Math.PI;
             if (piece.toLowerCase() === "pawn") {
                 model.position.set(
-                    (file  - (size - 1) / 2) + pawnSpacingBlack.file,
-                    -(plane - (size - 1) / 2) + pawnSpacingBlack.plane,
-                    -(rank  - (size - 1) / 2) + pawnSpacingBlack.rank
+                    (file  - (size - 1) / 2) + pawnOffsetBlack.file,
+                    -(plane - (size - 1) / 2) + pawnOffsetBlack.plane,
+                    -(rank  - (size - 1) / 2) + pawnOffsetBlack.rank
                 );
             }
         }
@@ -272,6 +273,41 @@ function placePiece(file, plane, rank, piece, color) {
 
 // loaders — declared after placePiece so the cache reference is in scope
 const loader = new GLTFLoader();
+
+// move pieces
+function movePiece(from, to) {
+    const piece = board[from.file][from.plane][from.rank];
+    if (!piece) return;
+    // game state update
+    const capturedPiece = board[to.file][to.plane][to.rank];
+    if (capturedPiece) {
+        const capturedModel = cells[to.file][to.plane][to.rank];
+        if (capturedModel) scene.remove(capturedModel);
+    }
+    board[to.file][to.plane][to.rank] = piece;
+    board[from.file][from.plane][from.rank] = null;
+    // visual update
+    const model = cells[from.file][from.plane][from.rank].userData.pieceModel;
+    if (model) {
+        if (piece.type.toLowerCase() === "pawn") {
+            const offset = piece.color === "white" ? pawnOffsetWhite : pawnOffsetBlack;
+            model.position.set(
+                (to.file  - (size - 1) / 2) + offset.file,
+                -(to.plane - (size - 1) / 2) + offset.plane,
+                -(to.rank  - (size - 1) / 2) + offset.rank
+            );
+        } else {
+            model.position.set(
+                (to.file - (size - 1) / 2),
+                -(to.plane - (size - 1) / 2) - 0.5,
+                -(to.rank - (size - 1) / 2)
+            );
+        }
+        cells[to.file][to.plane][to.rank].userData.pieceModel = model;
+        cells[from.file][from.plane][from.rank].userData.pieceModel = null;
+    }
+    needsRender = true;
+}
 
 // make sure the selection doesn't escape the board
 function clampSelection() {
@@ -306,6 +342,7 @@ function moveBack()  { selected.rank++;  clampSelection(); updateHighlight(); co
 
 // event listener for keyboard input
 window.addEventListener('keydown', (event) => {
+    console.log(event.code);
     const blockedKeys = ['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','Enter'];
     if (blockedKeys.includes(event.code)) event.preventDefault();
 
@@ -316,7 +353,20 @@ window.addEventListener('keydown', (event) => {
         case 'KeyD': moveRight(); break;
         case 'KeyQ': moveFront(); break;
         case 'KeyE': moveBack();  break;
-        case 'Enter': /* place piece */ break;
+        case 'Enter':
+            console.log("Enter hit", activePiece, board[selected.file][selected.plane][selected.rank]);
+            if (!activePiece) {
+                if (!board[selected.file][selected.plane][selected.rank]) return;
+                activePiece = { ...selected };
+                cells[activePiece.file][activePiece.plane][activePiece.rank]
+                    .userData.box.material.opacity = 0.8;
+                needsRender = true;
+                break;
+            } else {
+                movePiece(activePiece, { ...selected });
+                activePiece = null;
+            }
+            break;
     }
 });
 
@@ -355,8 +405,7 @@ function animate() {
 
     // FIX: only call controls.update() when damping is active AND the user
     //      is interacting (or damping is still decelerating)
-    if (damping && controlsActive) {
-        controls.update();
+    if (damping && (controlsActive || controls.update())) {
         needsRender = true;
     }
 
