@@ -181,12 +181,57 @@ for (let file = 0; file < size; file++) {
 
 // --- function definitions ---
 
+const modelCache = {};
+
+// showing toast notifications
+function showToast(message, msDuration) {
+    toast.textContent = message;
+    toast.classList.add("show");
+    setTimeout(() => {toast.classList.remove("show");}, msDuration);
+}
+
 function getPiece(x, y, z) {
     if (x < 0 || x > 7 || y < 0 || y > 7 || z < 0 || z > 7) return null;
     return board[x][y][z];
 }
 
-const modelCache = {};
+// check detection
+// find where is the king
+function findKing(color) {
+    for (let file = 0; file < size; file++) {
+        for (let plane = 0; plane < size; plane++) {
+            for (let rank = 0; rank < size; rank++) {
+                const piece = board[file][plane][rank];
+                if (piece && piece.type.toLowerCase() === "king" && piece.color === color) {
+                    return { file, plane, rank };
+                }
+            }
+        }
+    }
+    return null;
+}
+// check if the king is in danger (check for check)
+function isKingInCheck(color) {
+    const kingPos = findKing(color);
+    if (!kingPos) return false;
+    const enemyColor = color === "white" ? "black" : "white";
+    for (let file = 0; file < size; file++) {
+        for (let plane = 0; plane < size; plane++) {
+            for (let rank = 0; rank < size; rank++) {
+                const piece = board[file][plane][rank];
+                if (!piece || piece.color !== enemyColor) continue;
+                const moves = getValidMoves(file, plane, rank);
+                const attacksKing = moves.some(m => 
+                    m.file === kingPos.file &&
+                    m.plane === kingPos.plane &&
+                    m.rank === kingPos.rank
+                );
+                if (attacksKing) return true;
+            }
+        }
+    }
+    return false;
+}
 
 function placePiece(file, plane, rank, piece, color) {
     if (!board[file] || !board[file][plane]) {
@@ -318,7 +363,7 @@ function getKingMoves(file, plane, rank, color) {
 }
 function getPawnMoves(file, plane, rank, color) {
     const moves = [];
-    const [fwd1, fwd2] = color === "white" ? [1, -1] : [-1, 1];
+    const [fwd1, fwd2] = color === "white" ? [1, 1] : [-1, -1];
     const isStarting = color === "white" ? (rank === 1) : (rank === 6);
 
     const r1 = rank + fwd1;
@@ -368,6 +413,31 @@ function getValidMoves(file, plane, rank) {
         default: return [];
     }
 }
+function getLegalMoves(file, plane, rank) {
+    const piece = board[file][plane][rank];
+    if (!piece) return [];
+
+    const validMoves = getValidMoves(file, plane, rank);
+
+    return validMoves.filter(move => {
+        const capturedPiece =
+            board[move.file][move.plane][move.rank];
+
+        // simulate
+        board[move.file][move.plane][move.rank] = piece;
+        board[file][plane][rank] = null;
+
+        const illegal =
+            isKingInCheck(piece.color);
+
+        // undo
+        board[file][plane][rank] = piece;
+        board[move.file][move.plane][move.rank] =
+            capturedPiece;
+
+        return !illegal;
+    });
+}
 
 // highlight possible moves
 function showMoves(moves) {
@@ -387,6 +457,8 @@ function clearMoves() {
         cell.userData.box.material.opacity = 0.01;
     }
     highlightedCells = [];
+    cells[selected.file][selected.plane][selected.rank].userData.box.material.color.set(0xffff00);
+    cells[selected.file][selected.plane][selected.rank].userData.box.material.opacity = 0.3;
     needsRender = true;
 }
 
@@ -395,32 +467,81 @@ function movePiece(from, to) {
     const piece = board[from.file][from.plane][from.rank];
     if (!piece) return;
     const valid = getValidMoves(from.file, from.plane, from.rank);
-    const allowed = valid.some(m => m.file === to.file && m.plane === to.plane && m.rank === to.rank);
+    const allowed = valid.some(m =>
+        m.file === to.file &&
+        m.plane === to.plane &&
+        m.rank === to.rank
+    );
     if (!allowed) {
         console.log("illegal move!");
         activePiece = null;
         return;
     }
     const capturedPiece = board[to.file][to.plane][to.rank];
-    if (capturedPiece) {
-        const capturedModel = cells[to.file][to.plane][to.rank];
-        if (capturedModel) scene.remove(capturedModel);
-    }
     board[to.file][to.plane][to.rank] = piece;
     board[from.file][from.plane][from.rank] = null;
-    const model = cells[from.file][from.plane][from.rank].userData.pieceModel;
+    
+    const leavesKingInCheck = isKingInCheck(piece.color);
+
+    // undo simulation
+    board[from.file][from.plane][from.rank] = piece;
+    board[to.file][to.plane][to.rank] = capturedPiece;
+
+    if (leavesKingInCheck) {
+        console.log("Move leaves king in check!");
+        console.log("illegal move!");
+        activePiece = null;
+        return;
+    }
+
+    // --- real move starts here ---
+
+    if (capturedPiece) {
+        const capturedModel =
+            cells[to.file][to.plane][to.rank].userData.pieceModel;
+
+        if (capturedModel) {
+            scene.remove(capturedModel);
+        }
+
+        cells[to.file][to.plane][to.rank].userData.pieceModel = null;
+    }
+
+    board[to.file][to.plane][to.rank] = piece;
+    board[from.file][from.plane][from.rank] = null;
+
+    const model =
+        cells[from.file][from.plane][from.rank].userData.pieceModel;
+
     if (model) {
         model.position.set(
             (to.file - (size - 1) / 2),
             -(to.plane - (size - 1) / 2) - 0.5,
             -(to.rank - (size - 1) / 2)
         );
+
         cells[to.file][to.plane][to.rank].userData.pieceModel = model;
         cells[from.file][from.plane][from.rank].userData.pieceModel = null;
     }
+
     currentPlayer = currentPlayer === 1 ? 2 : 1;
-    turnInfo.textContent = currentPlayer === 1 ? "White's turn" : "Black's turn";
+
+    turnInfo.textContent =
+        currentPlayer === 1
+            ? "White's turn"
+            : "Black's turn";
+
     needsRender = true;
+
+    if (isKingInCheck("white")) {
+        console.log("White is in check!");
+        showToast("White is in Check!", 3000);
+    }
+
+    if (isKingInCheck("black")) {
+        console.log("Black is in check!");
+        showToast("Black is in Check!", 3000);
+    }
 }
 
 function clampSelection() {
@@ -447,7 +568,7 @@ function updateHighlight() {
         }
     }
     const cell = cells[selected.file][selected.plane][selected.rank];
-    cell.userData.box.material.opacity = 0.5;
+    cell.userData.box.material.opacity = 0.3;
     previousSelectedCell = cell;
     needsRender = true;
 }
@@ -480,7 +601,7 @@ window.addEventListener('keydown', (event) => {
                 const piece = board[selected.file][selected.plane][selected.rank];
                 if (piece.color !== (currentPlayer === 1 ? "white" : "black")) break;
                 activePiece = { ...selected };
-                showMoves(getValidMoves(selected.file, selected.plane, selected.rank));
+                showMoves(getLegalMoves(selected.file, selected.plane, selected.rank));
                 cells[activePiece.file][activePiece.plane][activePiece.rank]
                     .userData.box.material.opacity = 0.8;
                 needsRender = true;
@@ -489,6 +610,8 @@ window.addEventListener('keydown', (event) => {
                 movePiece(activePiece, { ...selected });
                 activePiece = null;
             }
+            console.log(getValidMoves(selected.file, selected.plane, selected.rank));
+            console.log(getLegalMoves(selected.file, selected.plane, selected.rank));
             break;
         }
     }
@@ -508,7 +631,7 @@ document.getElementById("place").addEventListener('click', () => {
         const piece = board[selected.file][selected.plane][selected.rank];
         if (piece.color !== (currentPlayer === 1 ? "white" : "black")) return;
         activePiece = { ...selected };
-        showMoves(getValidMoves(selected.file, selected.plane, selected.rank));
+        showMoves(getLegalMoves(selected.file, selected.plane, selected.rank));
         cells[activePiece.file][activePiece.plane][activePiece.rank]
             .userData.box.material.opacity = 0.8;
         needsRender = true;
