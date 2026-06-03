@@ -408,7 +408,7 @@ function getKingMoves(file, plane, rank, color) {
 function getPawnMoves(file, plane, rank, color) {
     const moves = [];
     const [fwd1, fwd2] = color === "white" ? [1, 1] : [-1, -1];
-    const isStarting = color === "white" ? (rank === 1 && (plane === 0 || plane === 1)) : (rank === 6 && (plane === 6 || plane === 7));
+    const isStarting = color === "white" ? ((rank === 1 && (plane === 0 || plane === 1)) || (plane === 1 && rank === 0)) : ((rank === 6 && (plane === 6 || plane === 7)) || (plane === 6 && rank === 7));
 
     const r1 = rank + fwd1;
     if (r1 >= 0 && r1 < 8 && !getPiece(file, plane, r1)) {
@@ -734,13 +734,13 @@ function resetGame() {
     for (let file = 0; file < size; file++) {
         placePiece(file, 0, 0, backRankWhite[file], "white");
         placePiece(file, 0, 1, "Pawn", "white");
-        placePiece(file, 1, 0, backRankSecond[file], "white");
-        //placePiece(file, 1, 0, "Pawn", "white");
+        //placePiece(file, 1, 0, backRankSecond[file], "white");
+        placePiece(file, 1, 0, "Pawn", "white");
         placePiece(file, 1, 1, "Pawn", "white");
         placePiece(file, 7, 7, backRankBlack[file], "black");
         placePiece(file, 7, 6, "Pawn", "black");
-        placePiece(file, 6, 7, backRankSecond[file], "black");
-        //placePiece(file, 6, 7, "Pawn", "black");
+        //placePiece(file, 6, 7, backRankSecond[file], "black");
+        placePiece(file, 6, 7, "Pawn", "black");
         placePiece(file, 6, 6, "Pawn", "black");
     }
 }
