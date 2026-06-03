@@ -50,7 +50,7 @@ const backRankBlack = [
     "Knight",
     "Rook"
 ];
-const backRankSecond = [
+const backRankSecond = [ // this one applies to both sides
     "Rook",
     "Knight",
     "Bishop",
@@ -181,6 +181,11 @@ for (let file = 0; file < size; file++) {
 
 // --- function definitions ---
 
+function toSentenceCase(str) {
+  if (!str) return '';
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
 const modelCache = {};
 
 // showing toast notifications
@@ -193,6 +198,43 @@ function showToast(message, msDuration) {
 function getPiece(x, y, z) {
     if (x < 0 || x > 7 || y < 0 || y > 7 || z < 0 || z > 7) return null;
     return board[x][y][z];
+}
+
+// checkmate & stalemate detection
+// check if the player has any legal moves left
+function hasLegalMove(color) {
+    for (let file = 0; file < size; file++) {
+        for (let plane = 0; plane < size; plane++) {
+            for (let rank = 0; rank < size; rank++) {
+                const piece = board[file][plane][rank];
+
+                if (!piece || piece.color !== color) {
+                    continue;
+                }
+
+                const legalMoves =
+                    getLegalMoves(file, plane, rank);
+
+                if (legalMoves.length > 0) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+function isCheckmate(color) {
+    return (
+        isKingInCheck(color) &&
+        !hasLegalMove(color)
+    );
+}
+function isStalemate(color) {
+    return (
+        !isKingInCheck(color) &&
+        !hasLegalMove(color)
+    );
 }
 
 // check detection
@@ -226,7 +268,9 @@ function isKingInCheck(color) {
                     m.plane === kingPos.plane &&
                     m.rank === kingPos.rank
                 );
-                if (attacksKing) return true;
+                if (attacksKing) {
+                    return true;
+                }
             }
         }
     }
@@ -532,15 +576,25 @@ function movePiece(from, to) {
             : "Black's turn";
 
     needsRender = true;
+    const sideToMove = currentPlayer === 1 ? "white" : "black";
 
     if (isKingInCheck("white")) {
         console.log("White is in check!");
         showToast("White is in Check!", 3000);
+        blinkKing("white");
     }
-
     if (isKingInCheck("black")) {
         console.log("Black is in check!");
         showToast("Black is in Check!", 3000);
+        blinkKing("black");
+    }
+    if (isCheckmate(sideToMove)) {
+        console.log(`${toSentenceCase(sideToMove)} is Checkmated!`);
+        showToast(`${toSentenceCase(sideToMove)} is Checkmated!`, 3000);
+    }
+    if (isStalemate(sideToMove)) {
+        console.log("stalemate!");
+        showToast("Stalemate!", 2000);
     }
 }
 
@@ -571,6 +625,39 @@ function updateHighlight() {
     cell.userData.box.material.opacity = 0.3;
     previousSelectedCell = cell;
     needsRender = true;
+}
+
+function blinkKing(color) {
+    const kingPos = findKing(color);
+    if (!kingPos) return;
+    const model = cells[kingPos.file][kingPos.plane][kingPos.rank].userData.pieceModel;
+    if (!model) return;
+
+    // collect all meshes in the king group
+    const meshes = [];
+    model.traverse(obj => { if (obj.isMesh) meshes.push(obj); });
+
+    const redMat = new THREE.MeshStandardMaterial({
+        color: 0xff0000,
+        metalness: 0.5,
+        roughness: 0.1
+    });
+
+    // store original materials
+    const originalMats = meshes.map(m => m.material);
+
+    let blinks = 0;
+    const interval = setInterval(() => {
+        const isRed = blinks % 2 === 0;
+        meshes.forEach(m => m.material = isRed ? redMat : originalMats[0]);
+        needsRender = true;
+        blinks++;
+        if (blinks >= 10) { // 5 blinks
+            clearInterval(interval);
+            meshes.forEach(m => m.material = originalMats[0]); // restore
+            needsRender = true;
+        }
+    }, 500);
 }
 
 let needsRender = true;
@@ -643,16 +730,22 @@ document.getElementById("place").addEventListener('click', () => {
 });
 
 // starting pieces
-for (let file = 0; file < size; file++) {
-    placePiece(file, 0, 0, backRankWhite[file], "white");
-    placePiece(file, 0, 1, "Pawn", "white");
-    placePiece(file, 1, 0, backRankSecond[file], "white");
-    placePiece(file, 1, 1, "Pawn", "white");
-    placePiece(file, 7, 7, backRankBlack[file], "black");
-    placePiece(file, 7, 6, "Pawn", "black");
-    placePiece(file, 6, 7, backRankSecond[file], "black");
-    placePiece(file, 6, 6, "Pawn", "black");
+function resetGame() {
+    for (let file = 0; file < size; file++) {
+        placePiece(file, 0, 0, backRankWhite[file], "white");
+        placePiece(file, 0, 1, "Pawn", "white");
+        placePiece(file, 1, 0, backRankSecond[file], "white");
+        //placePiece(file, 1, 0, "Pawn", "white");
+        placePiece(file, 1, 1, "Pawn", "white");
+        placePiece(file, 7, 7, backRankBlack[file], "black");
+        placePiece(file, 7, 6, "Pawn", "black");
+        placePiece(file, 6, 7, backRankSecond[file], "black");
+        //placePiece(file, 6, 7, "Pawn", "black");
+        placePiece(file, 6, 6, "Pawn", "black");
+    }
 }
+
+resetGame();
 
 updateHighlight();
 
